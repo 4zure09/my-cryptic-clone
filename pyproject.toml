@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cryptic-support-clone"
+version = "0.1.0"
+description = "Daily support-content ingestion and retrieval assistant"
+requires-python = ">=3.12"
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "markdownify>=0.13,<2",
+  "openai>=3.24,<4",
+  "python-dotenv>=1.1,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cryptic_clone"]

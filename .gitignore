@@ -1,0 +1,42 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.sample
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Runtime output
+logs/
+state/
+tmp/
+*.log
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local AI instructions and planning notes
+AGENTS.md
+CLAUDE.md
+AI_GUIDE.md
+GOAL.md
+PLAN.md
+*.prompt.md
+.ai/
+.codex/
+.cursor/
+
