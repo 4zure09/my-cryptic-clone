@@ -2,8 +2,8 @@ name: Daily support sync
 
 on:
   schedule:
-    # Use an off-peak minute: 06:17 UTC = 13:17 Vietnam (UTC+7).
-    - cron: "17 6 * * *"
+    # Use an off-peak minute: 06:35 UTC = 13:35 Vietnam (UTC+7).
+    - cron: "35 6 * * *"
   workflow_dispatch:
     inputs:
       article_limit:
