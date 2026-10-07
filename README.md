@@ -49,11 +49,10 @@ python -m venv .venv
 [GitHub Actions — Daily support sync](https://github.com/4zure09/my-cryptic-clone/actions) builds and runs the Docker image daily at 06:00 UTC (13:00 Vietnam time). Each run publishes `last-run.log` as a downloadable artifact.
 
 **Deployment Strategy: Why GitHub Actions?**
-While the assignment suggested platforms like Railway, Render, or AWS/GCP, I chose GitHub Actions to optimally fulfill the requirement of providing a *publicly accessible link to job logs and artifacts*.
+While platforms like Railway, Render, AWS, or GCP are excellent for application hosting, I chose GitHub Actions for this specific daily job to optimally fulfill the requirement of providing a *publicly accessible link to job logs and artifacts*.
 
-* **Public Visibility:** PaaS platforms (like Railway/Render) and IaaS setups keep execution logs private to the account owner. Sharing a direct URL to these logs would result in an access error for reviewers unless I built additional infrastructure (e.g., streaming logs to a public S3 bucket).
-* **Native Artifacts:** GitHub Actions natively supports artifact uploading. It automatically zips and hosts the `last-run.log` file after every run, satisfying the "last run artefact" requirement out-of-the-box.
-* **Serverless Efficiency:** Since the job only needs to run once a day, using a CI/CD runner is more resource-efficient than provisioning a dedicated VPS (DigitalOcean/AWS) or configuring a 24/7 PaaS worker just to handle a cron schedule.
+* **Public Visibility & Native Artifacts:** PaaS platforms and IaaS setups typically keep execution logs private. GitHub Actions seamlessly provides public log URLs and natively generates downloadable log artifacts (`last-run.log`) after each run, without requiring additional infrastructure like external S3 buckets.
+* **Simplified Configuration:** For a standalone script that executes once a day, a serverless CI/CD runner offers a straightforward cron configuration. It effectively eliminates the overhead of maintaining a dedicated VPS or running a continuous PaaS instance just to trigger a daily schedule.
 
 ## Screenshot of assistant answering a sample question
 
