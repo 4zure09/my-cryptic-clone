@@ -48,6 +48,13 @@ python -m venv .venv
 
 [GitHub Actions — Daily support sync](https://github.com/4zure09/my-cryptic-clone/actions) builds and runs the Docker image daily at 06:00 UTC (13:00 Vietnam time). Each run publishes `last-run.log` as a downloadable artifact.
 
+**Deployment Strategy: Why GitHub Actions?**
+While the assignment suggested platforms like Railway, Render, or AWS/GCP, I chose GitHub Actions to optimally fulfill the requirement of providing a *publicly accessible link to job logs and artifacts*.
+
+* **Public Visibility:** PaaS platforms (like Railway/Render) and IaaS setups keep execution logs private to the account owner. Sharing a direct URL to these logs would result in an access error for reviewers unless I built additional infrastructure (e.g., streaming logs to a public S3 bucket).
+* **Native Artifacts:** GitHub Actions natively supports artifact uploading. It automatically zips and hosts the `last-run.log` file after every run, satisfying the "last run artefact" requirement out-of-the-box.
+* **Serverless Efficiency:** Since the job only needs to run once a day, using a CI/CD runner is more resource-efficient than provisioning a dedicated VPS (DigitalOcean/AWS) or configuring a 24/7 PaaS worker just to handle a cron schedule.
+
 ## Screenshot of assistant answering a sample question
 
 The assistant answers **“How do I add a YouTube video?”** from the uploaded documents and cites the source article URL.
