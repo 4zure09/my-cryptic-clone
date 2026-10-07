@@ -48,4 +48,4 @@ docker run --rm -e API_KEY=$env:OPENAI_API_KEY -e OPENAI_VECTOR_STORE_ID=$env:OP
 
 In the OpenAI UI, attach the configured Vector Store to the bot, ask **“How do I add a YouTube video?”**, and save the cited-answer screenshot as `artifacts/screenshots/assistant-youtube-answer.png`.
 
-<!-- ![Assistant answering with cited article URLs](artifacts/screenshots/assistant-youtube-answer.png) -->
+![Assistant answering with cited article URLs](artifacts/screenshots/assistant-youtube-answer.png)
