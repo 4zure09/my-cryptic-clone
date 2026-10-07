@@ -112,6 +112,7 @@ def main() -> int:
         vector_store_id, vector_store_created = resolve_vector_store(
             client=client,
             name=os.getenv("OPENAI_VECTOR_STORE_NAME", "cryptic-optibot-kb"),
+            configured_id=os.getenv("OPENAI_VECTOR_STORE_ID"),
         )
         logger.info(
             "Using OpenAI vector store: id=%s created=%s",

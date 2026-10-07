@@ -68,9 +68,15 @@ class FakeVectorStores:
         del limit, order
         return FakePage(list(self.items))
 
+    def retrieve(self, *, vector_store_id):
+        item = next((item for item in self.items if item.id == vector_store_id), None)
+        if item is None:
+            raise RuntimeError("not found")
+        return item
+
     def create(self, **payload):
         item = SimpleNamespace(
-            id=f"vs-{len(self.items) + 1}",
+            id=f"vs_{len(self.items) + 1}",
             name=payload["name"],
             metadata=dict(payload["metadata"]),
         )
@@ -100,9 +106,40 @@ def test_store_is_created_once_then_found_from_remote_metadata() -> None:
     first = resolve_vector_store(client=client, name="test-store")
     second = resolve_vector_store(client=client, name="renamed-locally")
 
-    assert first == ("vs-1", True)
-    assert second == ("vs-1", False)
+    assert first == ("vs_1", True)
+    assert second == ("vs_1", False)
     assert len(client.vector_stores.items) == 1
+
+
+def test_configured_store_id_is_retrieved_instead_of_creating() -> None:
+    client = FakeClient()
+    existing = client.vector_stores.create(
+        name="existing",
+        metadata={},
+        description="existing store",
+    )
+
+    resolved = resolve_vector_store(
+        client=client,
+        name="ignored",
+        configured_id=existing.id,
+    )
+
+    assert resolved == (existing.id, False)
+    assert len(client.vector_stores.items) == 1
+
+
+def test_missing_configured_store_fails_instead_of_creating() -> None:
+    client = FakeClient()
+
+    with pytest.raises(RuntimeError, match="could not be retrieved"):
+        resolve_vector_store(
+            client=client,
+            name="must-not-be-created",
+            configured_id="vs_missing",
+        )
+
+    assert client.vector_stores.items == []
 
 
 def test_multiple_managed_stores_fail_instead_of_guessing() -> None:
@@ -145,6 +182,33 @@ def test_upload_then_skip_uses_remote_file_attributes(tmp_path, caplog) -> None:
     assert len(client.vector_stores.files.items) == 1
     assert "Uploaded article: 1.md | Files: 1 | Estimated Chunks: 1" in caplog.text
     assert "Strategy: 800 tokens/chunk, 120 overlap" in caplog.text
+
+
+def test_matching_legacy_file_is_reused_and_marked_as_managed(tmp_path) -> None:
+    client = FakeClient()
+    document = make_document(tmp_path)
+    legacy = SimpleNamespace(
+        id="file-legacy",
+        status="completed",
+        created_at=1,
+        attributes={
+            "article_id": document.article_id,
+            "source_url": document.article_url,
+            "document_hash": document.document_hash,
+        },
+    )
+    client.vector_stores.files.items.append(legacy)
+
+    result = sync_vector_store(
+        client=client,
+        vector_store_id="vs-existing",
+        documents=(document,),
+        full_snapshot=False,
+    )
+
+    assert (result.added, result.skipped) == (0, 1)
+    assert legacy.attributes["managed_by"] == "zendesk-optisigns"
+    assert client.vector_stores.files.updated == ["file-legacy"]
 
 
 def test_update_uploads_before_removing_old_file(tmp_path) -> None:

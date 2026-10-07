@@ -40,8 +40,28 @@ def _metadata(resource: Any, field: str = "attributes") -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def resolve_vector_store(*, client: Any, name: str) -> tuple[str, bool]:
-    """Find this project's store by remote metadata, or create it once."""
+def resolve_vector_store(
+    *,
+    client: Any,
+    name: str,
+    configured_id: str | None = None,
+) -> tuple[str, bool]:
+    """Validate a configured store, otherwise find or create the managed store."""
+    requested_id = configured_id.strip() if configured_id else ""
+    if requested_id:
+        if not requested_id.startswith("vs_"):
+            raise ValueError("OPENAI_VECTOR_STORE_ID must start with 'vs_'")
+        try:
+            store = client.vector_stores.retrieve(vector_store_id=requested_id)
+        except Exception as exc:
+            raise RuntimeError(
+                "OPENAI_VECTOR_STORE_ID could not be retrieved. Check that it exists "
+                "and belongs to the same OpenAI project as OPENAI_API_KEY."
+            ) from exc
+        if str(store.id) != requested_id:
+            raise RuntimeError("OpenAI returned a different vector-store ID")
+        return requested_id, False
+
     stores = _iter_data(client.vector_stores.list(limit=100, order="desc"))
     matches = [
         store
@@ -64,6 +84,19 @@ def resolve_vector_store(*, client: Any, name: str) -> tuple[str, bool]:
         metadata={"managed_by": STORE_MANAGED_BY, "source": STORE_SOURCE},
     )
     return str(store.id), True
+
+
+def _is_article_file(attributes: dict[str, Any]) -> bool:
+    """Accept current files plus legacy files created by this project's old sync."""
+    if attributes.get("managed_by") == FILE_MANAGED_BY:
+        return True
+    return (
+        isinstance(attributes.get("article_id"), str)
+        and isinstance(attributes.get("document_hash"), str)
+        and str(attributes.get("source_url", "")).startswith(
+            "https://support.optisigns.com/"
+        )
+    )
 
 
 def _estimate_chunks(
@@ -124,7 +157,7 @@ def sync_vector_store(
     remote_by_article: dict[str, list[Any]] = {}
     for vector_file in remote_files:
         attributes = _metadata(vector_file)
-        if attributes.get("managed_by") != FILE_MANAGED_BY:
+        if not _is_article_file(attributes):
             continue
         article_id = attributes.get("article_id")
         if isinstance(article_id, str):
@@ -143,11 +176,18 @@ def sync_vector_store(
         if matching:
             keep = max(matching, key=_file_sort_key)
             keep_attributes = _metadata(keep)
-            if keep_attributes.get("missing_runs", 0) != 0:
+            if (
+                keep_attributes.get("managed_by") != FILE_MANAGED_BY
+                or keep_attributes.get("missing_runs", 0) != 0
+            ):
                 client.vector_stores.files.update(
                     keep.id,
                     vector_store_id=vector_store_id,
-                    attributes={**keep_attributes, "missing_runs": 0},
+                    attributes={
+                        **keep_attributes,
+                        "managed_by": FILE_MANAGED_BY,
+                        "missing_runs": 0,
+                    },
                 )
             for stale in [item for item in previous_files if item.id != keep.id]:
                 _delete_vector_file(client, vector_store_id, stale.id)
