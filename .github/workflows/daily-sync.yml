@@ -45,13 +45,21 @@ jobs:
             exit 1
           fi
 
+      - name: Restore runtime article cache
+        uses: actions/cache@v4
+        with:
+          path: .runtime/articles
+          key: article-data-${{ github.run_id }}
+          restore-keys: |
+            article-data-
+
       - name: Build Docker image
         run: docker build --tag daily-scraper .
 
       - name: Run scraper inside Docker
         shell: bash
         run: |
-          mkdir -p logs
+          mkdir -p logs .runtime/articles
           set -o pipefail
           docker run --rm \
             --env OPENAI_API_KEY \
@@ -59,7 +67,9 @@ jobs:
             --env OPENAI_VECTOR_STORE_NAME \
             --env UPLOAD_ENABLED \
             --env ARTICLE_LIMIT \
+            --env DATA_DIR \
             --volume "${{ github.workspace }}/logs:/app/logs" \
+            --volume "${{ github.workspace }}/.runtime/articles:/app/.runtime/articles" \
             daily-scraper main.py 2>&1 | tee logs/last-run.log
 
       - name: Publish last-run log

@@ -87,7 +87,8 @@ def main() -> int:
         return 1
 
     logger.info(
-        "Article ingestion complete: fetched=%d files_written=%d files_reused=%d "
+        "Article ingestion complete: fetched=%d local_files_written=%d "
+        "local_files_reused=%d "
         "local_files_removed=%d full_snapshot=%s output=%s",
         result.fetched,
         result.files_written,

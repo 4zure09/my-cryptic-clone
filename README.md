@@ -27,13 +27,13 @@ For the daily job, add `OPENAI_API_KEY` as a GitHub Actions repository secret an
 docker build -t cryptic-clone .
 
 # Test: scrape, normalize, and sync 40 articles
-docker run --rm --env-file .env -e UPLOAD_ENABLED=true cryptic-clone main.py
+docker run --rm --env-file .env -e UPLOAD_ENABLED=true -v cryptic-articles:/app/.runtime/articles cryptic-clone main.py
 
 # Daily-production equivalent: sync every published Zendesk article
-docker run --rm --env-file .env -e UPLOAD_ENABLED=true -e ARTICLE_LIMIT=0 cryptic-clone main.py
+docker run --rm --env-file .env -e UPLOAD_ENABLED=true -e ARTICLE_LIMIT=0 -v cryptic-articles:/app/.runtime/articles cryptic-clone main.py
 ```
 
-Each run compares the Zendesk article ID and content hash stored in OpenAI file attributes. It uploads only added or updated files, skips unchanged files, and removes an article only after it is missing from two consecutive complete runs. Logs include `added`, `updated`, `skipped`, `deleted`, uploaded files, and estimated chunks.
+Each run compares the Zendesk article ID and content hash stored in OpenAI file attributes. It uploads only added or updated files, skips unchanged files, and removes an article only after it is missing from two consecutive complete runs. The Docker volume preserves local Markdown; OpenAI attributes remain the source of truth for upload delta. Logs include `added`, `updated`, `skipped`, `deleted`, uploaded files, and estimated chunks.
 
 Optional local verification:
 
