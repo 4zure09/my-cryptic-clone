@@ -46,7 +46,7 @@ python -m venv .venv
 
 ## Link to daily job logs
 
-[GitHub Actions — Daily support sync](https://github.com/4zure09/my-cryptic-clone/actions) runs daily at 02:17 in `Asia/Ho_Chi_Minh`. Each run publishes `last-run.log` as a downloadable artifact.
+[GitHub Actions — Daily support sync](https://github.com/4zure09/my-cryptic-clone/actions) builds and runs the Docker image daily at 06:00 UTC (13:00 Vietnam time). Each run publishes `last-run.log` as a downloadable artifact.
 
 ## Screenshot of assistant answering a sample question
 

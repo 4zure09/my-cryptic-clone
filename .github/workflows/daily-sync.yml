@@ -2,8 +2,8 @@ name: Daily support sync
 
 on:
   schedule:
-    - cron: "17 2 * * *"
-      timezone: "Asia/Ho_Chi_Minh"
+    # GitHub cron uses UTC: 06:00 UTC = 13:00 Vietnam (UTC+7).
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       article_limit:
@@ -33,28 +33,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate vector store configuration
+      - name: Validate OpenAI configuration
         shell: bash
         run: |
+          if [[ -z "$OPENAI_API_KEY" ]]; then
+            echo "::error::Set the repository secret OPENAI_API_KEY before running this workflow."
+            exit 1
+          fi
           if [[ -z "$OPENAI_VECTOR_STORE_ID" ]]; then
             echo "::error::Set the repository variable OPENAI_VECTOR_STORE_ID before running this workflow."
             exit 1
           fi
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
+      - name: Build Docker image
+        run: docker build --tag daily-scraper .
 
-      - name: Install
-        run: python -m pip install .
-
-      - name: Scrape and upload delta
+      - name: Run scraper inside Docker
         shell: bash
         run: |
           mkdir -p logs
           set -o pipefail
-          python main.py 2>&1 | tee logs/last-run.log
+          docker run --rm \
+            --env OPENAI_API_KEY \
+            --env OPENAI_VECTOR_STORE_ID \
+            --env OPENAI_VECTOR_STORE_NAME \
+            --env UPLOAD_ENABLED \
+            --env ARTICLE_LIMIT \
+            --volume "${{ github.workspace }}/logs:/app/logs" \
+            daily-scraper main.py 2>&1 | tee logs/last-run.log
 
       - name: Publish last-run log
         if: always()
