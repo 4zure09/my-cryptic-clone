@@ -2,8 +2,8 @@ name: Daily support sync
 
 on:
   schedule:
-    # GitHub cron uses UTC: 06:00 UTC = 13:00 Vietnam (UTC+7).
-    - cron: "0 6 * * *"
+    # Use an off-peak minute: 06:17 UTC = 13:17 Vietnam (UTC+7).
+    - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
       article_limit:
@@ -27,7 +27,7 @@ jobs:
       OPENAI_VECTOR_STORE_ID: ${{ vars.OPENAI_VECTOR_STORE_ID }}
       OPENAI_VECTOR_STORE_NAME: cryptic-optibot-kb
       UPLOAD_ENABLED: "true"
-      ARTICLE_LIMIT: ${{ inputs.article_limit || '0' }}
+      ARTICLE_LIMIT: ${{ github.event.inputs.article_limit || '0' }}
       DATA_DIR: .runtime/articles
 
     steps:
