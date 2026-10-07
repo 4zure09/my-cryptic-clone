@@ -1,9 +1,19 @@
+import logging
 from types import SimpleNamespace
 
 import pytest
 
 from cryptic_clone.models import MarkdownDocument
 from cryptic_clone.openai_sync import resolve_vector_store, sync_vector_store
+
+
+@pytest.fixture(autouse=True)
+def deterministic_tokenizer(monkeypatch):
+    encoding = SimpleNamespace(encode=lambda text: text.split())
+    monkeypatch.setattr(
+        "cryptic_clone.openai_sync.tiktoken.get_encoding",
+        lambda _name: encoding,
+    )
 
 
 class FakePage:
@@ -112,16 +122,17 @@ def test_multiple_managed_stores_fail_instead_of_guessing() -> None:
         resolve_vector_store(client=client, name="two")
 
 
-def test_upload_then_skip_uses_remote_file_attributes(tmp_path) -> None:
+def test_upload_then_skip_uses_remote_file_attributes(tmp_path, caplog) -> None:
     client = FakeClient()
     document = make_document(tmp_path)
 
-    first = sync_vector_store(
-        client=client,
-        vector_store_id="vs-1",
-        documents=(document,),
-        full_snapshot=False,
-    )
+    with caplog.at_level(logging.INFO):
+        first = sync_vector_store(
+            client=client,
+            vector_store_id="vs-1",
+            documents=(document,),
+            full_snapshot=False,
+        )
     second = sync_vector_store(
         client=client,
         vector_store_id="vs-1",
@@ -132,6 +143,8 @@ def test_upload_then_skip_uses_remote_file_attributes(tmp_path) -> None:
     assert (first.added, first.files_embedded) == (1, 1)
     assert (second.skipped, second.files_embedded) == (1, 0)
     assert len(client.vector_stores.files.items) == 1
+    assert "Uploaded article: 1.md | Files: 1 | Estimated Chunks: 1" in caplog.text
+    assert "Strategy: 800 tokens/chunk, 120 overlap" in caplog.text
 
 
 def test_update_uploads_before_removing_old_file(tmp_path) -> None:

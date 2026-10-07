@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from dataclasses import dataclass
 from typing import Any
+
+import tiktoken
 
 from cryptic_clone.models import MarkdownDocument
 
@@ -14,6 +15,7 @@ LOGGER = logging.getLogger(__name__)
 STORE_MANAGED_BY = "cryptic-support-clone"
 STORE_SOURCE = "support.optisigns.com"
 FILE_MANAGED_BY = "zendesk-optisigns"
+TOKEN_ENCODING = "cl100k_base"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,14 +71,14 @@ def _estimate_chunks(
     *,
     chunk_max_tokens: int,
     chunk_overlap_tokens: int,
-) -> int:
-    """Estimate static chunks locally; OpenAI does not return a chunk count."""
+) -> tuple[int, int]:
+    """Return local token and overlap-aware chunk estimates for one document."""
     text = document.path.read_text(encoding="utf-8")
-    token_count = len(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
+    token_count = len(tiktoken.get_encoding(TOKEN_ENCODING).encode(text))
     if token_count <= chunk_max_tokens:
-        return 1
+        return token_count, 1
     stride = chunk_max_tokens - chunk_overlap_tokens
-    return 1 + math.ceil((token_count - chunk_max_tokens) / stride)
+    return token_count, 1 + math.ceil((token_count - chunk_max_tokens) / stride)
 
 
 def _delete_vector_file(client: Any, vector_store_id: str, file_id: str) -> None:
@@ -180,10 +182,21 @@ def sync_vector_store(
         for stale in previous_files:
             _delete_vector_file(client, vector_store_id, stale.id)
             files_removed += 1
-        chunks_embedded += _estimate_chunks(
+        token_count, chunk_count = _estimate_chunks(
             document,
             chunk_max_tokens=chunk_max_tokens,
             chunk_overlap_tokens=chunk_overlap_tokens,
+        )
+        chunks_embedded += chunk_count
+        LOGGER.info(
+            "Uploaded article: %s | Files: 1 | Estimated Chunks: %d "
+            "(Strategy: %d tokens/chunk, %d overlap; Tokens: %d via %s)",
+            document.path.name,
+            chunk_count,
+            chunk_max_tokens,
+            chunk_overlap_tokens,
+            token_count,
+            TOKEN_ENCODING,
         )
         if previous_files:
             updated += 1

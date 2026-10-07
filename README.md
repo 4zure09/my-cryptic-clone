@@ -14,7 +14,7 @@ Set only `OPENAI_API_KEY` in `.env`. No vector-store ID or Assistant ID is requi
 
 For GitHub Actions, add the repository secret `OPENAI_API_KEY`. The daily workflow needs no cache and no repository variables. Existing untagged stores such as an older `opb-store` are intentionally ignored; they can be deleted manually after confirming the new managed store works.
 
-Files use static chunks of 800 tokens with a 120-token overlap. Every uploaded file records `article_id`, SHA-256 `document_hash`, source URL, and deletion state as OpenAI file attributes. The logged chunk count is a local estimate because the upload response does not expose a chunk total.
+Files use static chunks of 800 tokens with a 120-token overlap. Every uploaded file records `article_id`, SHA-256 `document_hash`, source URL, and deletion state as OpenAI file attributes. Each successful upload logs its filename and an overlap-aware chunk estimate calculated locally with `tiktoken` (`cl100k_base`), because the upload response does not expose a chunk total.
 
 ## How to run locally
 
