@@ -19,7 +19,8 @@ build/
 
 # Runtime output
 logs/
-state/
+.runtime/
+data/
 tmp/
 *.log
 
@@ -39,4 +40,3 @@ PLAN.md
 .ai/
 .codex/
 .cursor/
-

@@ -1,16 +1,14 @@
-import json
 from types import SimpleNamespace
 
-from cryptic_clone.openai_sync import (
-    attach_vector_store_to_assistant,
-    resolve_vector_store,
-    sync_vector_store,
-)
+import pytest
+
+from cryptic_clone.models import MarkdownDocument
+from cryptic_clone.openai_sync import resolve_vector_store, sync_vector_store
 
 
 class FakePage:
-    def __init__(self, chunk_count: int) -> None:
-        self.data = [object() for _ in range(chunk_count)]
+    def __init__(self, data) -> None:
+        self.data = data
 
     def iter_pages(self):
         yield self
@@ -18,267 +16,194 @@ class FakePage:
 
 class FakeVectorFiles:
     def __init__(self) -> None:
-        self.uploaded: list[str] = []
-        self.deleted: list[str] = []
-        self.chunks: dict[str, int] = {}
+        self.items = []
+        self.deleted = []
+        self.updated = []
+
+    def list(self, vector_store_id, *, limit):
+        del vector_store_id, limit
+        return FakePage(list(self.items))
 
     def upload_and_poll(self, *, vector_store_id, file, attributes, chunking_strategy):
-        del vector_store_id, attributes, chunking_strategy
-        file_id = f"file-{len(self.uploaded) + 1}"
-        self.uploaded.append(file.name)
-        self.chunks[file_id] = 3
-        return SimpleNamespace(id=file_id, status="completed", usage_bytes=123)
+        del vector_store_id, file, chunking_strategy
+        item = SimpleNamespace(
+            id=f"file-{len(self.items) + 1}",
+            status="completed",
+            attributes=dict(attributes),
+            created_at=len(self.items) + 1,
+        )
+        self.items.append(item)
+        return item
 
-    def content(self, file_id, *, vector_store_id):
+    def update(self, file_id, *, vector_store_id, attributes):
         del vector_store_id
-        return FakePage(self.chunks[file_id])
+        item = next(item for item in self.items if item.id == file_id)
+        item.attributes = dict(attributes)
+        self.updated.append(file_id)
+        return item
 
     def delete(self, file_id, *, vector_store_id):
         del vector_store_id
+        self.items = [item for item in self.items if item.id != file_id]
         self.deleted.append(file_id)
         return SimpleNamespace(deleted=True)
 
 
+class FakeVectorStores:
+    def __init__(self) -> None:
+        self.items = []
+        self.files = FakeVectorFiles()
+
+    def list(self, *, limit, order):
+        del limit, order
+        return FakePage(list(self.items))
+
+    def create(self, **payload):
+        item = SimpleNamespace(
+            id=f"vs-{len(self.items) + 1}",
+            name=payload["name"],
+            metadata=dict(payload["metadata"]),
+        )
+        self.items.append(item)
+        return item
+
+
 class FakeClient:
     def __init__(self) -> None:
-        self.vector_files = FakeVectorFiles()
-        self.vector_stores = SimpleNamespace(files=self.vector_files)
+        self.vector_stores = FakeVectorStores()
 
 
-class Dumpable:
-    def __init__(self, value) -> None:
-        self.value = value
-
-    def model_dump(self, *, exclude_none):
-        del exclude_none
-        return self.value
-
-
-class FakeOpenAIClient(FakeClient):
-    def __init__(self) -> None:
-        super().__init__()
-        self.created_stores: list[dict] = []
-        self.assistant_updates: list[tuple[str, dict]] = []
-        self.vector_stores.create = self.create_vector_store
-        self.beta = SimpleNamespace(
-            assistants=SimpleNamespace(
-                retrieve=self.retrieve_assistant,
-                update=self.update_assistant,
-            )
-        )
-
-    def create_vector_store(self, **payload):
-        self.created_stores.append(payload)
-        return SimpleNamespace(id="vs_created")
-
-    def retrieve_assistant(self, assistant_id):
-        del assistant_id
-        return SimpleNamespace(
-            tools=[
-                Dumpable(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "existing_tool",
-                            "description": "kept",
-                            "parameters": {"type": "object"},
-                        },
-                    }
-                )
-            ],
-            tool_resources=Dumpable({"code_interpreter": {"file_ids": ["file-existing"]}}),
-        )
-
-    def update_assistant(self, assistant_id, **payload):
-        self.assistant_updates.append((assistant_id, payload))
-        return SimpleNamespace(id=assistant_id)
-
-
-def write_manifest(state_file, article_path, document_hash="hash-1", **overrides):
-    record = {
-        "title": "Article 1",
-        "article_url": "https://support.optisigns.com/hc/en-us/articles/1",
-        "updated_at": "2026-01-01T00:00:00Z",
-        "filename": article_path.name,
-        "document_hash": document_hash,
-        "deleted": False,
-        "vector_file_id": None,
-        "uploaded_hash": None,
-    }
-    record.update(overrides)
-    state_file.parent.mkdir(parents=True)
-    state_file.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "last_successful_run": None,
-                "last_run_was_full_snapshot": False,
-                "articles": {"1": record},
-            }
-        ),
-        encoding="utf-8",
+def make_document(tmp_path, article_id="1", content="# Article"):
+    path = tmp_path / f"{article_id}.md"
+    path.write_text(content, encoding="utf-8")
+    return MarkdownDocument(
+        article_id=article_id,
+        article_url=f"https://support.optisigns.com/hc/en-us/articles/{article_id}",
+        path=path,
+        document_hash=f"hash-{content}",
     )
 
 
-def test_uploads_new_file_then_skips_unchanged_file(tmp_path) -> None:
-    output_dir = tmp_path / "articles"
-    output_dir.mkdir()
-    article_path = output_dir / "1-article.md"
-    article_path.write_text("# Article", encoding="utf-8")
-    state_file = tmp_path / "state" / "articles.json"
-    write_manifest(state_file, article_path)
+def test_store_is_created_once_then_found_from_remote_metadata() -> None:
     client = FakeClient()
+
+    first = resolve_vector_store(client=client, name="test-store")
+    second = resolve_vector_store(client=client, name="renamed-locally")
+
+    assert first == ("vs-1", True)
+    assert second == ("vs-1", False)
+    assert len(client.vector_stores.items) == 1
+
+
+def test_multiple_managed_stores_fail_instead_of_guessing() -> None:
+    client = FakeClient()
+    resolve_vector_store(client=client, name="one")
+    client.vector_stores.items.append(
+        SimpleNamespace(
+            id="vs-duplicate",
+            metadata={
+                "managed_by": "cryptic-support-clone",
+                "source": "support.optisigns.com",
+            },
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="Multiple project-managed"):
+        resolve_vector_store(client=client, name="two")
+
+
+def test_upload_then_skip_uses_remote_file_attributes(tmp_path) -> None:
+    client = FakeClient()
+    document = make_document(tmp_path)
 
     first = sync_vector_store(
         client=client,
-        vector_store_id="vs-test",
-        output_dir=output_dir,
-        state_file=state_file,
+        vector_store_id="vs-1",
+        documents=(document,),
+        full_snapshot=False,
     )
     second = sync_vector_store(
         client=client,
-        vector_store_id="vs-test",
-        output_dir=output_dir,
-        state_file=state_file,
+        vector_store_id="vs-1",
+        documents=(document,),
+        full_snapshot=False,
     )
 
-    assert (first.added, first.files_embedded, first.chunks_embedded) == (1, 1, 1)
+    assert (first.added, first.files_embedded) == (1, 1)
     assert (second.skipped, second.files_embedded) == (1, 0)
-    assert len(client.vector_files.uploaded) == 1
+    assert len(client.vector_stores.files.items) == 1
 
 
-def test_update_uploads_first_then_removes_superseded_file(tmp_path) -> None:
-    output_dir = tmp_path / "articles"
-    output_dir.mkdir()
-    article_path = output_dir / "1-article.md"
-    article_path.write_text("# Changed", encoding="utf-8")
-    state_file = tmp_path / "state" / "articles.json"
-    write_manifest(
-        state_file,
-        article_path,
-        document_hash="new-hash",
-        vector_file_id="file-old",
-        uploaded_hash="old-hash",
-        vector_chunk_count=2,
-    )
+def test_update_uploads_before_removing_old_file(tmp_path) -> None:
     client = FakeClient()
+    original = make_document(tmp_path, content="# Original")
+    sync_vector_store(
+        client=client,
+        vector_store_id="vs-1",
+        documents=(original,),
+        full_snapshot=False,
+    )
+    changed = make_document(tmp_path, content="# Changed")
 
     result = sync_vector_store(
         client=client,
-        vector_store_id="vs-test",
-        output_dir=output_dir,
-        state_file=state_file,
+        vector_store_id="vs-1",
+        documents=(changed,),
+        full_snapshot=False,
     )
 
-    manifest = json.loads(state_file.read_text(encoding="utf-8"))
     assert result.updated == 1
     assert result.files_removed == 1
-    assert client.vector_files.deleted == ["file-old"]
-    assert manifest["articles"]["1"]["vector_file_id"] == "file-1"
-    assert manifest["articles"]["1"]["uploaded_hash"] == "new-hash"
+    assert client.vector_stores.files.deleted == ["file-1"]
+    assert client.vector_stores.files.items[0].attributes["document_hash"] == changed.document_hash
 
 
-def test_deleted_article_is_detached_without_reupload(tmp_path) -> None:
-    output_dir = tmp_path / "articles"
-    output_dir.mkdir()
-    article_path = output_dir / "1-article.md"
-    state_file = tmp_path / "state" / "articles.json"
-    write_manifest(
-        state_file,
-        article_path,
-        deleted=True,
-        vector_file_id="file-old",
-        uploaded_hash="hash-1",
-    )
+def test_delete_requires_two_complete_snapshots(tmp_path) -> None:
     client = FakeClient()
+    first = make_document(tmp_path, article_id="1")
+    second = make_document(tmp_path, article_id="2")
+    sync_vector_store(
+        client=client,
+        vector_store_id="vs-1",
+        documents=(first, second),
+        full_snapshot=True,
+    )
+
+    pending = sync_vector_store(
+        client=client,
+        vector_store_id="vs-1",
+        documents=(first,),
+        full_snapshot=True,
+    )
+    deleted = sync_vector_store(
+        client=client,
+        vector_store_id="vs-1",
+        documents=(first,),
+        full_snapshot=True,
+    )
+
+    assert (pending.pending_deletion, pending.deleted) == (1, 0)
+    assert (deleted.pending_deletion, deleted.deleted) == (0, 1)
+    assert len(client.vector_stores.files.items) == 1
+
+
+def test_limited_snapshot_never_marks_unseen_files(tmp_path) -> None:
+    client = FakeClient()
+    first = make_document(tmp_path, article_id="1")
+    second = make_document(tmp_path, article_id="2")
+    sync_vector_store(
+        client=client,
+        vector_store_id="vs-1",
+        documents=(first, second),
+        full_snapshot=True,
+    )
 
     result = sync_vector_store(
         client=client,
-        vector_store_id="vs-test",
-        output_dir=output_dir,
-        state_file=state_file,
+        vector_store_id="vs-1",
+        documents=(first,),
+        full_snapshot=False,
     )
 
-    assert result.deleted == 1
-    assert result.files_removed == 1
-    assert result.files_embedded == 0
-    assert client.vector_files.deleted == ["file-old"]
-
-
-def test_missing_active_markdown_aborts_before_any_api_call(tmp_path) -> None:
-    output_dir = tmp_path / "articles"
-    output_dir.mkdir()
-    article_path = output_dir / "1-article.md"
-    state_file = tmp_path / "state" / "articles.json"
-    write_manifest(state_file, article_path)
-    client = FakeClient()
-
-    try:
-        sync_vector_store(
-            client=client,
-            vector_store_id="vs-test",
-            output_dir=output_dir,
-            state_file=state_file,
-        )
-    except FileNotFoundError as exc:
-        assert "aborted before upload" in str(exc)
-    else:
-        raise AssertionError("missing Markdown should abort vector sync")
-
-    assert client.vector_files.uploaded == []
-
-
-def test_resolve_vector_store_creates_once_and_reuses_manifest(tmp_path) -> None:
-    state_file = tmp_path / "state" / "articles.json"
-    client = FakeOpenAIClient()
-
-    first_id, first_created = resolve_vector_store(
-        client=client,
-        state_file=state_file,
-        configured_id=None,
-    )
-    second_id, second_created = resolve_vector_store(
-        client=client,
-        state_file=state_file,
-        configured_id=None,
-    )
-
-    assert (first_id, first_created) == ("vs_created", True)
-    assert (second_id, second_created) == ("vs_created", False)
-    assert len(client.created_stores) == 1
-
-
-def test_attaches_store_without_removing_existing_assistant_tools() -> None:
-    client = FakeOpenAIClient()
-
-    attach_vector_store_to_assistant(
-        client=client,
-        assistant_id="asst_test",
-        vector_store_id="vs_test",
-    )
-
-    assistant_id, payload = client.assistant_updates[0]
-    assert assistant_id == "asst_test"
-    assert [tool["type"] for tool in payload["tools"]] == ["function", "file_search"]
-    assert payload["tool_resources"]["code_interpreter"] == {
-        "file_ids": ["file-existing"]
-    }
-    assert payload["tool_resources"]["file_search"] == {
-        "vector_store_ids": ["vs_test"]
-    }
-
-
-def test_rejects_agent_id_as_legacy_assistant_id() -> None:
-    client = FakeOpenAIClient()
-
-    try:
-        attach_vector_store_to_assistant(
-            client=client,
-            assistant_id="agent_test",
-            vector_store_id="vs_test",
-        )
-    except ValueError as exc:
-        assert "agent_" in str(exc)
-        assert "asst_" in str(exc)
-    else:
-        raise AssertionError("agent_ ID should not be accepted as ASSISTANT_ID")
+    assert result.pending_deletion == 0
+    assert client.vector_stores.files.updated == []

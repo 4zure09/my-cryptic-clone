@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -28,3 +29,10 @@ class Article:
             labels=tuple(str(label) for label in payload.get("label_names", [])),
         )
 
+
+@dataclass(frozen=True, slots=True)
+class MarkdownDocument:
+    article_id: str
+    article_url: str
+    path: Path
+    document_hash: str

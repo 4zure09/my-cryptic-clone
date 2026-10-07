@@ -10,7 +10,6 @@ COPY src /app/src
 RUN pip install --no-cache-dir .
 
 COPY main.py /app/
-RUN mkdir -p /app/data/articles
 
 ENTRYPOINT ["python"]
 CMD ["main.py"]
